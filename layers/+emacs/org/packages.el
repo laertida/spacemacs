@@ -74,6 +74,11 @@
     (org-appear :toggle org-enable-appear-support)
     (org-transclusion :toggle org-enable-transclusion-support)
     helm
+    ;; org toggl
+    (org-toggl
+     :location (recipe :fetcher github :repo "laertida/org-toggl")
+     :toggle org-enable-toggl-support)
+
     (ox-asciidoc :toggle org-enable-asciidoc-support)))
 
 (defun org/post-init-company ()
@@ -1098,3 +1103,7 @@ Headline^^            Visit entry^^               Filter^^                    Da
           org-roam-ui-follow t
           org-roam-ui-update-on-save t
           org-roam-ui-open-on-start t)))
+
+(defun org/init-org-toggl ()
+  (use-package org-toggl)
+  )
