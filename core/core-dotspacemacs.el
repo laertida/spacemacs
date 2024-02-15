@@ -1,6 +1,6 @@
 ;;; core-dotspacemacs.el --- Spacemacs Core File -*- lexical-binding: t -*-
 ;;
-;; Copyright (c) 2012-2022 Sylvain Benner & Contributors
+;; Copyright (c) 2012-2024 Sylvain Benner & Contributors
 ;;
 ;; Author: Sylvain Benner <sylvain.benner@gmail.com>
 ;; URL: https://github.com/syl20bnr/spacemacs
@@ -780,15 +780,10 @@ are caught and signaled to user in spacemacs buffer."
   (interactive)
   (dotspacemacs|call-func dotspacemacs/user-env "Calling dotfile user env..."))
 
-(defun dotspacemacs/go-to-function (func)
-  "Open the dotfile and goes to FUNC function."
-  (interactive)
-  (find-function func))
-
 (defun dotspacemacs/go-to-user-env ()
   "Go to the `dotspacemacs/user-env' function."
   (interactive)
-  (dotspacemacs/go-to-function 'dotspacemacs/user-env))
+  (find-function 'dotspacemacs/user-env))
 
 (defun dotspacemacs//check-layers-changed ()
   "Check if the value of `dotspacemacs-configuration-layers'
@@ -1077,33 +1072,25 @@ Informs users of error and prompts for default editing style for use during
 error recovery."
   (load (concat dotspacemacs-template-directory
                 ".spacemacs.template"))
-  (defadvice dotspacemacs/layers
-      (after error-recover-preserve-packages activate)
-    (progn
-      (setq-default dotspacemacs-install-packages 'used-but-keep-unused)
-      (ad-disable-advice 'dotspacemacs/layers 'after
-                         'error-recover-preserve-packages)
-      (ad-activate 'dotspacemacs/layers)))
-  (defadvice dotspacemacs/init
-      (after error-recover-prompt-for-style activate)
-    (progn
-      (setq-default dotspacemacs-editing-style
-                    (intern
-                     (ido-completing-read
-                      (format
-                       (concat
-                        "Spacemacs encountered an error while "
-                        "loading your `%s' file.\n"
-                        "Pick your editing style for recovery "
-                        "(use left and right arrows): ")
-                       dotspacemacs-filepath)
-                      '(("vim" vim)
-                        ("emacs" emacs)
-                        ("hybrid" hybrid))
-                      nil t nil nil 'vim)))
-      (ad-disable-advice 'dotspacemacs/init 'after
-                         'error-recover-prompt-for-style)
-      (ad-activate 'dotspacemacs/init))))
+  (define-advice dotspacemacs/layers (:after (&rest _) error-recover-preserve-packages)
+    (setq-default dotspacemacs-install-packages 'used-but-keep-unused)
+    (advice-remove 'dotspacemacs/layers #'dotspacemacs/layers@error-recover-preserve-packages))
+  (define-advice dotspacemacs/init (:after (&rest _) error-recover-prompt-for-style)
+    (setq-default dotspacemacs-editing-style
+                  (intern
+                   (ido-completing-read
+                    (format
+                     (concat
+                      "Spacemacs encountered an error while "
+                      "loading your `%s' file.\n"
+                      "Pick your editing style for recovery "
+                      "(use left and right arrows): ")
+                     dotspacemacs-filepath)
+                    '(("vim" vim)
+                      ("emacs" emacs)
+                      ("hybrid" hybrid))
+                    nil t nil nil 'vim)))
+    (advice-remove 'dotspacemacs/init #'dotspacemacs/init@error-recover-prompt-for-style)))
 
 (defun dotspacemacs//test-dotspacemacs/layers ()
   "Tests for `dotspacemacs/layers'"
@@ -1269,5 +1256,33 @@ Return non-nil if all the tests passed."
                            dotspacemacs//test-dotspacemacs/init)
                          :initial-value t)
             (goto-char (point-min))))))))
+
+(define-advice en/disable-command (:around (orig-f &rest args) write-to-dotspacemacs-instead)
+  "Attempt to modify `dotspacemacs/user-config' rather than ~/.emacs.d/init.el."
+  (let ((orig-f-called))
+    (condition-case-unless-debug e
+        (let* ((location (find-function-noselect 'dotspacemacs/user-config 'lisp-only))
+               (buffer (car location))
+               (start (cdr location))
+               (user-init-file (buffer-file-name buffer)))
+          (with-current-buffer buffer
+            (save-excursion
+              (save-restriction
+                ;; Set `user-init-file' and narrow the buffer visiting that
+                ;; file, to trick en/disable-command into writing inside the
+                ;; body of `dotspacemacs/user-config' instead of
+                ;; ~/.emacs.d/init.el.
+                (goto-char start)
+                (forward-sexp)
+                (backward-char)
+                (narrow-to-region start (point))
+                (setq orig-f-called t)
+                (apply orig-f args)))))
+      (error
+       ;; If the error happened before we managed to call the advised function,
+       ;; just allow the original function to run and modify ~/.emacs.d/init.el,
+       ;; which is better than failing completely.
+       (unless orig-f-called
+         (apply orig-f args))))))
 
 (provide 'core-dotspacemacs)
